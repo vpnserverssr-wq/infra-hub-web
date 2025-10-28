@@ -379,6 +379,7 @@ export function usePlatform(tableRef: Ref) {
         case "ssl_verify":
         case "datacenter":
         case "version":
+        case "region":
         case "build":
         case "total_hosts":
         case "total_clusters":
