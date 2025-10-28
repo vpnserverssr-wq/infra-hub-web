@@ -1,5 +1,13 @@
 import { platformApi } from "./api";
-import { getCurrentInstance, h, reactive, type Ref, shallowRef } from "vue";
+import {
+  getCurrentInstance,
+  h,
+  reactive,
+  type Ref,
+  ref,
+  shallowRef,
+  nextTick
+} from "vue";
 import { getDefaultAuths } from "@/router/utils";
 import type {
   OperationProps,
@@ -8,15 +16,7 @@ import type {
 } from "@/components/RePlusPage";
 import { handleOperation } from "@/components/RePlusPage";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
-import {
-  ElForm,
-  ElFormItem,
-  ElInput,
-  ElMessageBox,
-  ElRadio,
-  ElRadioGroup,
-  ElTag
-} from "element-plus";
+import { ElMessageBox, ElTag } from "element-plus";
 import Connection from "~icons/ep/connection";
 import Refresh from "~icons/ep/refresh";
 import Key from "~icons/ep/key";
@@ -33,6 +33,13 @@ export function usePlatform(tableRef: Ref) {
       "syncPlatform",
       "manageCredential"
     ])
+  });
+
+  // 凭据对话框引用和当前平台信息
+  const credentialDialogRef = ref();
+  const currentPlatform = reactive({
+    id: "",
+    name: ""
   });
 
   // 简单的翻译函数，用于 handleOperation
@@ -79,157 +86,20 @@ export function usePlatform(tableRef: Ref) {
   };
 
   /**
-   * 同步平台数据
-   */
-  const handleSyncPlatform = (row: any, loading: { value: boolean }) => {
-    loading.value = true;
-    handleOperation({
-      t,
-      apiReq: api.syncPlatform(row?.pk ?? row?.id),
-      success(data) {
-        message(data.detail || "同步任务已启动", { type: "success" });
-        tableRef.value.handleGetData();
-      },
-      requestEnd() {
-        loading.value = false;
-      }
-    });
-  };
-
-  /**
    * 管理凭据
    */
-  const handleManageCredential = (row: any) => {
-    const credentialForm = reactive({
-      auth_type: "password",
-      username: "",
-      password: "",
-      token: ""
-    });
+  const handleManageCredential = async (row: any) => {
+    // 保存当前平台信息
+    currentPlatform.id = row?.pk ?? row?.id;
+    currentPlatform.name = row?.name || "";
 
-    // 先获取现有凭据
-    api.getCredential(row?.pk ?? row?.id).then(res => {
-      if (res.code === 2000 && res.data) {
-        credentialForm.auth_type = res.data.auth_type || "password";
-        credentialForm.username = res.data.username || "";
-      }
-    });
+    // 等待 DOM 更新后再打开对话框，确保 props 已经传递给子组件
+    await nextTick();
 
-    ElMessageBox({
-      title: "管理凭据",
-      message: h("div", { style: "padding: 20px 0;" }, [
-        h(ElForm, { labelWidth: "100px" }, [
-          h(
-            ElFormItem,
-            { label: "认证类型" },
-            h(
-              ElRadioGroup,
-              {
-                modelValue: credentialForm.auth_type,
-                "onUpdate:modelValue": (val: string) => {
-                  credentialForm.auth_type = val;
-                }
-              },
-              [
-                h(ElRadio, { label: "password" }, () => "用户名密码"),
-                h(ElRadio, { label: "token" }, () => "API Token")
-              ]
-            )
-          ),
-          credentialForm.auth_type === "password"
-            ? [
-                h(
-                  ElFormItem,
-                  { label: "用户名" },
-                  h(ElInput, {
-                    modelValue: credentialForm.username,
-                    "onUpdate:modelValue": (val: string) => {
-                      credentialForm.username = val;
-                    },
-                    placeholder: "请输入用户名"
-                  })
-                ),
-                h(
-                  ElFormItem,
-                  { label: "密码" },
-                  h(ElInput, {
-                    type: "password",
-                    modelValue: credentialForm.password,
-                    "onUpdate:modelValue": (val: string) => {
-                      credentialForm.password = val;
-                    },
-                    placeholder: "请输入密码",
-                    showPassword: true
-                  })
-                )
-              ]
-            : h(
-                ElFormItem,
-                { label: "Token" },
-                h(ElInput, {
-                  type: "textarea",
-                  modelValue: credentialForm.token,
-                  "onUpdate:modelValue": (val: string) => {
-                    credentialForm.token = val;
-                  },
-                  placeholder: "请输入 API Token",
-                  rows: 4
-                })
-              )
-        ])
-      ]),
-      showCancelButton: true,
-      confirmButtonText: "保存",
-      cancelButtonText: "取消",
-      beforeClose: (action, instance, done) => {
-        if (action === "confirm") {
-          instance.confirmButtonLoading = true;
-
-          const submitData: any = {
-            auth_type: credentialForm.auth_type
-          };
-
-          if (credentialForm.auth_type === "password") {
-            submitData.username = credentialForm.username;
-            if (credentialForm.password) {
-              submitData.password = credentialForm.password;
-            }
-          } else {
-            submitData.token = credentialForm.token;
-          }
-
-          // 尝试创建或更新凭据
-          api
-            .createCredential(row?.pk ?? row?.id, submitData)
-            .then(() => {
-              message("凭据保存成功", { type: "success" });
-              done();
-            })
-            .catch(err => {
-              // 如果创建失败，尝试更新
-              if (err.code === 1001) {
-                api
-                  .updateCredential(row?.pk ?? row?.id, submitData)
-                  .then(() => {
-                    message("凭据保存成功", { type: "success" });
-                    done();
-                  })
-                  .catch(() => {
-                    message("凭据保存失败", { type: "error" });
-                  })
-                  .finally(() => {
-                    instance.confirmButtonLoading = false;
-                  });
-              } else {
-                message("凭据保存失败", { type: "error" });
-                instance.confirmButtonLoading = false;
-              }
-            });
-        } else {
-          done();
-        }
-      }
-    });
+    // 打开凭据对话框
+    if (credentialDialogRef.value) {
+      credentialDialogRef.value.open();
+    }
   };
 
   /**
@@ -255,18 +125,25 @@ export function usePlatform(tableRef: Ref) {
       {
         text: "同步数据",
         code: "syncPlatform",
-        confirm: {
-          title: row => {
-            return `确定同步平台 ${row.name} 的数据吗？`;
-          }
-        },
+        confirm: { title: "确定要同步此平台的数据吗？" },
         props: {
           type: "success",
           icon: useRenderIcon(Refresh),
           link: true
         },
         onClick: ({ row, loading }) => {
-          handleSyncPlatform(row, loading);
+          loading.value = true;
+          handleOperation({
+            t,
+            apiReq: api.syncPlatform(row?.pk ?? row?.id),
+            success(data) {
+              message(data.detail || "同步任务已启动", { type: "success" });
+              tableRef.value.handleGetData();
+            },
+            requestEnd() {
+              loading.value = false;
+            }
+          });
         },
         show: auth.syncPlatform
       },
@@ -398,6 +275,8 @@ export function usePlatform(tableRef: Ref) {
     auth,
     addOrEditOptions,
     listColumnsFormat,
-    operationButtonsProps
+    operationButtonsProps,
+    credentialDialogRef,
+    currentPlatform
   };
 }
