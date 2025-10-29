@@ -31,9 +31,9 @@
 </template>
 
 <script lang="ts" setup>
-import type { Component, VNode, Ref, ComputedRef } from "vue";
+import type { VNode, Ref, ComputedRef } from "vue";
 import { h, unref, computed, ref } from "vue";
-import { ElPopconfirm, ElTooltip } from "element-plus";
+import { ElMessageBox, ElTooltip } from "element-plus";
 import {
   ElButton,
   ElDropdown,
@@ -147,16 +147,54 @@ const render = (row: RecordType, buttonRow: OperationButtonsRow): VNode => {
       : {}
   );
   if (buttonRow.confirm?.title) {
-    return h(
-      ElPopconfirm as Component,
-      {
-        title: renderString(buttonRow.confirm?.title, row, buttonRow),
-        onConfirm: (event: MouseEvent) =>
-          handleClickAction(row, buttonRow, event),
+    // Use MessageBox.confirm instead of Popconfirm to avoid reference loss issues
+    const confirmHandler = (event: MouseEvent) => {
+      // Merge props, prefer explicit confirm button labels if provided
+      const confirmProps = {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning",
+        dangerouslyUseHTMLString: true,
         ...buttonRow.confirm?.props
+      } as any;
+      ElMessageBox.confirm(
+        renderString(buttonRow.confirm?.title, row, buttonRow),
+        confirmProps.title || "提示",
+        confirmProps
+      )
+        .then(() => {
+          handleClickAction(row, buttonRow, event);
+        })
+        .catch(() => {
+          /* cancelled */
+        });
+    };
+
+    // create a button that opens the MessageBox on click
+    const buttonWithConfirm = h(
+      ElButton,
+      {
+        size: props.size,
+        loading: buttonLoadings.value[buttonRow.code],
+        ...buttonRowProps,
+        onClick: (event: MouseEvent) => confirmHandler(event)
       },
-      { reference: () => buttonComponent }
+      buttonRow?.text ? () => renderString(buttonRow.text, row, buttonRow) : {}
     );
+
+    if (buttonRow.tooltip?.content) {
+      return h(
+        ElTooltip,
+        {
+          placement: "top",
+          content: renderString(buttonRow.tooltip?.content, row, buttonRow),
+          ...buttonRow.tooltip?.props
+        },
+        () => buttonWithConfirm
+      );
+    }
+
+    return buttonWithConfirm;
   }
   if (buttonRow.tooltip?.content) {
     return h(
